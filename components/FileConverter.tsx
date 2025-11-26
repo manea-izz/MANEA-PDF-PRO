@@ -55,7 +55,7 @@ export const FileConverter: React.FC = () => {
 
   return (
     <div className="animate-fade-in">
-      <div className="mb-8">
+      <div className="mb-10">
           <FileUpload 
             onFilesSelected={handleFilesSelected} 
             descriptionText="Word (DOCX/DOC), Excel (XLSX/XLS), صور" 
@@ -65,9 +65,9 @@ export const FileConverter: React.FC = () => {
 
       <div className="space-y-4">
           {fileList.map((item, index) => (
-              <div key={index} className="flex flex-col sm:flex-row items-center p-4 bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+              <div key={index} className="flex flex-col sm:flex-row items-center p-4 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-lg hover:shadow-indigo-500/5 transition-all duration-300">
                   <div className="flex items-center w-full sm:w-auto mb-3 sm:mb-0">
-                      <div className="mr-4 p-2 bg-gray-50 rounded-lg">
+                      <div className="mr-4 p-2.5 bg-gray-50 rounded-xl border border-gray-100">
                           {getIcon(item.originalFile)}
                       </div>
                       <div className="flex-grow min-w-0">
@@ -80,13 +80,13 @@ export const FileConverter: React.FC = () => {
                       {item.status === 'pending' && (
                           <button 
                             onClick={() => convertFile(index)}
-                            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200"
+                            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200"
                           >
                               <ConvertIcon /> تحويل الآن
                           </button>
                       )}
                       {item.status === 'converting' && (
-                          <div className="flex items-center gap-2 text-indigo-600 text-sm font-bold bg-indigo-50 px-4 py-2 rounded-lg">
+                          <div className="flex items-center gap-2 text-indigo-600 text-sm font-bold bg-indigo-50 px-5 py-2.5 rounded-xl animate-pulse">
                               <Spinner className="h-4 w-4 text-indigo-600" /> جاري المعالجة...
                           </div>
                       )}
@@ -94,7 +94,7 @@ export const FileConverter: React.FC = () => {
                           <>
                             <button 
                                 onClick={() => handlePreview(item.pdfUrl!)}
-                                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-200 text-sm font-bold rounded-lg hover:bg-gray-50 transition-colors"
+                                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-200 text-sm font-bold rounded-xl hover:bg-gray-50 transition-colors"
                                 title="معاينة الملف"
                             >
                                 <EyeIcon /> معاينة
@@ -102,22 +102,25 @@ export const FileConverter: React.FC = () => {
                             <a 
                                 href={item.pdfUrl} 
                                 download={`${item.originalFile.name.split('.')[0]}.pdf`}
-                                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-emerald-500 text-white text-sm font-bold rounded-lg hover:bg-emerald-600 transition-colors shadow-sm shadow-emerald-200"
+                                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-emerald-500 text-white text-sm font-bold rounded-xl hover:bg-emerald-600 transition-colors shadow-sm shadow-emerald-200"
                             >
                                 <DownloadIcon /> تحميل
                             </a>
                           </>
                       )}
                       {item.status === 'error' && (
-                          <span className="text-red-500 bg-red-50 px-3 py-1.5 rounded-lg text-sm font-bold">{item.errorMessage}</span>
+                          <span className="text-red-500 bg-red-50 px-4 py-2 rounded-xl text-sm font-bold border border-red-100">{item.errorMessage}</span>
                       )}
                   </div>
               </div>
           ))}
           
           {fileList.length === 0 && (
-              <div className="text-center py-12 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
-                  <p className="text-gray-400 text-sm">لم يتم اختيار أي ملفات للتحويل بعد</p>
+              <div className="text-center py-16 bg-gray-50/50 rounded-3xl border border-dashed border-gray-200">
+                  <div className="inline-block p-4 bg-gray-100 rounded-full mb-3 text-gray-400">
+                     <ConvertIcon />
+                  </div>
+                  <p className="text-gray-400 text-sm font-medium">لم يتم اختيار أي ملفات للتحويل بعد</p>
               </div>
           )}
       </div>

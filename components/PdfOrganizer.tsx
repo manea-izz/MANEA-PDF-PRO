@@ -69,8 +69,8 @@ const PageThumbnail: React.FC<{
       <div className={`
         relative overflow-hidden mb-3 transition-all duration-300 bg-white
         ${isSelected 
-            ? 'ring-2 ring-indigo-500 shadow-xl shadow-indigo-200/50 rounded-lg' 
-            : 'ring-1 ring-gray-200 shadow-sm hover:shadow-lg hover:ring-indigo-300 rounded-lg'
+            ? 'ring-2 ring-indigo-500 shadow-xl shadow-indigo-200/50 rounded-xl' 
+            : 'ring-1 ring-gray-200 shadow-sm hover:shadow-lg hover:ring-indigo-300 rounded-xl'
         }
       `}>
         <canvas ref={canvasRef} className="w-full h-auto pointer-events-none block" />
@@ -78,13 +78,13 @@ const PageThumbnail: React.FC<{
         <div className={`absolute inset-0 bg-indigo-900/10 transition-opacity ${isSelected ? 'opacity-100' : 'opacity-0'}`}></div>
         
         {isSelected && (
-            <div className="absolute top-2 left-2 text-indigo-600 bg-white rounded-full shadow-md">
+            <div className="absolute top-2 left-2 text-indigo-600 bg-white rounded-full shadow-md p-0.5">
                 <CheckCircleIcon />
             </div>
         )}
 
          {/* Overlay actions - visible on hover */}
-        <div className="absolute inset-0 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 bg-black/5 transition-opacity z-10">
+        <div className="absolute inset-0 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 bg-white/30 backdrop-blur-[1px] transition-opacity z-10">
             <button 
                 onClick={(e) => { e.stopPropagation(); onRotate(e); }} 
                 className="p-2 bg-white text-indigo-600 rounded-full shadow-lg hover:bg-indigo-50 transition-transform hover:scale-110" 
@@ -101,7 +101,7 @@ const PageThumbnail: React.FC<{
             </button>
         </div>
       </div>
-      <span className={`text-xs font-bold px-2 py-1 rounded-full ${isSelected ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-500'}`}>
+      <span className={`text-xs font-bold px-3 py-1 rounded-full border ${isSelected ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-gray-50 text-gray-500 border-gray-100'}`}>
         صفحة {pageNumber}
       </span>
     </div>
@@ -143,7 +143,7 @@ export const PdfOrganizer: React.FC = () => {
       setPages(newPages);
     } catch (e) {
       console.error(e);
-      setError("حدث خطأ أثناء معالجة ملفات PDF. تأكد من أنها ملفات صالحة.");
+      setError("حدث خطأ أثناء معالجة ملفات PDF. تأكد من أنها ملفات صالحة وغير محمية بكلمة مرور.");
     } finally {
       setIsLoading(false);
     }
@@ -302,19 +302,19 @@ export const PdfOrganizer: React.FC = () => {
   if (pdfUrl) {
     return (
         <div className="flex flex-col items-center justify-center py-12 animate-fade-in-up">
-            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-6 shadow-inner">
+            <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mb-6 shadow-sm border border-green-100">
                 <CheckCircleIcon />
             </div>
             <h2 className="text-3xl font-bold text-gray-800 mb-2">تم تنظيم الملف بنجاح!</h2>
             <div className="flex flex-col sm:flex-row gap-4 mb-8 mt-4 w-full max-w-md">
-                <button onClick={() => window.open(pdfUrl, '_blank')} className="flex-1 inline-flex items-center justify-center gap-2 bg-white text-gray-700 border border-gray-200 font-bold py-4 px-6 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm">
+                <button onClick={() => window.open(pdfUrl, '_blank')} className="flex-1 inline-flex items-center justify-center gap-2 bg-white text-gray-700 border border-gray-200 font-bold py-4 px-6 rounded-2xl hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm">
                     <EyeIcon /> معاينة
                 </button>
-                <a href={pdfUrl} download={`organized-${Date.now()}.pdf`} className="flex-1 inline-flex items-center justify-center gap-2 bg-gradient-to-r from-green-500 to-green-600 text-white font-bold py-4 px-6 rounded-xl hover:shadow-lg hover:shadow-green-500/30 transition-all">
+                <a href={pdfUrl} download={`organized-${Date.now()}.pdf`} className="flex-1 inline-flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-bold py-4 px-6 rounded-2xl hover:shadow-lg hover:shadow-emerald-500/30 transition-all hover:translate-y-[-2px]">
                     <DownloadIcon /> تحميل PDF
                 </a>
             </div>
-            <button onClick={handleReset} className="text-sm text-gray-400 hover:text-indigo-600 font-medium transition-colors flex items-center gap-1">
+            <button onClick={handleReset} className="text-sm text-gray-400 hover:text-indigo-600 font-medium transition-colors flex items-center gap-2 px-4 py-2 rounded-lg hover:bg-gray-50">
                 <ResetIcon /> تنظيم ملف جديد
             </button>
         </div>
@@ -325,29 +325,29 @@ export const PdfOrganizer: React.FC = () => {
     <div className="animate-fade-in">
       <FileUpload onFilesSelected={handleFilesSelected} disabled={isLoading || isSaving} descriptionText="ملفات PDF فقط" acceptTypes="application/pdf" />
       
-      {isLoading && <div className="mt-8 flex flex-col items-center justify-center gap-3 text-indigo-600"><Spinner className="h-8 w-8 text-indigo-600"/><span className="font-medium">جاري تحليل الصفحات...</span></div>}
+      {isLoading && <div className="mt-8 flex flex-col items-center justify-center gap-3 text-indigo-600"><Spinner className="h-8 w-8 text-indigo-600"/><span className="font-medium animate-pulse">جاري تحليل الصفحات...</span></div>}
       
       {pages.length > 0 && (
-          <div className="mt-8">
+          <div className="mt-10">
               {/* Toolbar */}
-              <div className="flex flex-col sm:flex-row justify-between items-center bg-gray-50 border border-gray-200 p-2 rounded-xl mb-6 gap-3 sticky top-0 z-30 shadow-sm backdrop-blur-sm bg-opacity-90">
-                  <div className="flex items-center gap-2 w-full sm:w-auto">
+              <div className="flex flex-col md:flex-row justify-between items-center bg-white/80 border border-gray-100 p-3 rounded-2xl mb-6 gap-4 sticky top-2 z-30 shadow-lg shadow-indigo-100/50 backdrop-blur-md">
+                  <div className="flex items-center gap-3 w-full md:w-auto">
                     <button 
                         onClick={selectAll} 
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all text-sm font-bold ${selectedPageIds.size === pages.length && pages.length > 0 ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200' : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'}`}
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all text-sm font-bold ${selectedPageIds.size === pages.length && pages.length > 0 ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}
                     >
                         <CheckIcon /> {selectedPageIds.size === pages.length ? 'إلغاء' : 'تحديد الكل'}
                     </button>
-                    <span className="bg-white px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-indigo-600">
-                        {selectedPageIds.size} صفحة
+                    <span className="bg-indigo-50 px-4 py-2.5 rounded-xl text-sm font-bold text-indigo-600 border border-indigo-100">
+                        {selectedPageIds.size} <span className="font-normal text-indigo-400">محدد</span>
                     </span>
                   </div>
                   
-                  <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
+                  <div className="flex items-center gap-3 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
                       <select 
                         value={targetPageSize} 
                         onChange={(e) => setTargetPageSize(e.target.value as PageSizeOption)}
-                        className="bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 block p-2.5 outline-none"
+                        className="bg-gray-50 hover:bg-white border-transparent hover:border-gray-200 text-gray-700 text-sm font-bold rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 block p-2.5 outline-none transition-all cursor-pointer"
                       >
                           <option value="A4">حجم A4</option>
                           <option value="Letter">حجم Letter</option>
@@ -357,7 +357,7 @@ export const PdfOrganizer: React.FC = () => {
                       <button 
                         onClick={rotateSelected} 
                         disabled={selectedPageIds.size === 0}
-                        className="p-2.5 text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:text-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        className="p-2.5 text-gray-600 bg-gray-50 border border-transparent hover:border-gray-200 rounded-xl hover:bg-white hover:text-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         title="تدوير المحدد"
                       >
                         <RotateIcon />
@@ -366,7 +366,7 @@ export const PdfOrganizer: React.FC = () => {
                        <button 
                         onClick={() => handleSave(true)} 
                         disabled={selectedPageIds.size === 0}
-                        className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 hover:shadow-lg hover:shadow-indigo-500/20 disabled:bg-gray-300 disabled:shadow-none disabled:cursor-not-allowed transition-all whitespace-nowrap"
+                        className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 hover:shadow-lg hover:shadow-indigo-500/20 disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed transition-all whitespace-nowrap"
                       >
                         <SaveIcon /> حفظ المحدد
                       </button>
@@ -397,11 +397,11 @@ export const PdfOrganizer: React.FC = () => {
           </div>
       )}
       
-      {error && <div className="mt-6 text-center p-3 bg-red-50 text-red-600 rounded-lg border border-red-100">{error}</div>}
+      {error && <div className="mt-6 text-center p-4 bg-red-50 text-red-600 rounded-2xl border border-red-100 font-medium">{error}</div>}
 
       <div className="mt-8 pt-6 border-t border-gray-100">
-        <button onClick={() => handleSave(false)} disabled={pages.length === 0 || isLoading || isSaving} className="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-bold py-4 px-6 rounded-xl hover:shadow-lg hover:shadow-emerald-500/30 disabled:opacity-50 disabled:shadow-none disabled:cursor-not-allowed transition-all duration-300 flex items-center justify-center gap-3 text-lg transform active:scale-[0.99]">
-            {isSaving ? (<><Spinner className="h-6 w-6 text-white"/><span>جاري الحفظ...</span></>) : (<><SaveIcon /><span>حفظ جميع الصفحات ({pages.length})</span></>)}
+        <button onClick={() => handleSave(false)} disabled={pages.length === 0 || isLoading || isSaving} className="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-bold py-5 px-6 rounded-2xl hover:shadow-xl hover:shadow-emerald-500/30 disabled:opacity-50 disabled:shadow-none disabled:cursor-not-allowed transition-all duration-300 flex items-center justify-center gap-3 text-lg transform active:scale-[0.99] group">
+            {isSaving ? (<><Spinner className="h-6 w-6 text-white"/><span>جاري الحفظ...</span></>) : (<><SaveIcon /><span>حفظ جميع الصفحات ({pages.length})</span><span className="hidden group-hover:inline-block transition-all mr-2">💾</span></>)}
         </button>
       </div>
     </div>

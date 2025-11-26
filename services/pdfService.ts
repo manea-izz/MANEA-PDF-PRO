@@ -3,6 +3,27 @@
 // We access them directly as they are on the window object.
 
 /**
+ * Checks if a PDF file is encrypted (password protected).
+ */
+export const isPdfEncrypted = async (file: File): Promise<boolean> => {
+  const { PDFDocument } = (window as any).PDFLib;
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    // Try to load without password. If it fails with EncryptedPDFError (or similar), it's encrypted.
+    // pdf-lib throws an error if the document is encrypted and no password is provided.
+    await PDFDocument.load(arrayBuffer, { ignoreEncryption: false });
+    return false;
+  } catch (error: any) {
+    // Basic check for encryption error message from pdf-lib
+    if (error.message && (error.message.includes('encrypted') || error.message.includes('password'))) {
+      return true;
+    }
+    // If we can't determine, assume not encrypted or corrupt, let the main process handle it
+    return false;
+  }
+};
+
+/**
  * Renders HTML content to a series of canvas images (pagination) and adds them to the PDF document.
  * Includes improved error handling and visibility fixes for blank page issues.
  * @param htmlContent The HTML string to render.
@@ -13,22 +34,19 @@ async function embedHtmlAsImage(htmlContent: string, pdfDoc: any): Promise<void>
   const container = document.createElement('div');
 
   // A4 dimensions in pixels at 96 DPI: 794px width.
-  // We use a slightly smaller width for the container content to ensure margin.
   const A4_WIDTH_PX = 794; 
   const A4_HEIGHT_PX = 1123;
   const A4_ASPECT_RATIO = A4_WIDTH_PX / A4_HEIGHT_PX;
 
-  // IMPORTANT: Append to body to ensure rendering engine can see it (fixes blank canvas issue)
-  // But keep it hidden from user view using z-index and absolute positioning behind everything
   container.style.position = 'absolute';
   container.style.top = '0';
   container.style.left = '0';
   container.style.zIndex = '-1000'; // Behind everything
   container.style.width = `${A4_WIDTH_PX}px`;
-  container.style.backgroundColor = '#ffffff'; // Force white background
-  container.style.padding = '40px'; // Margin like a real document
+  container.style.backgroundColor = '#ffffff'; 
+  container.style.padding = '40px'; 
   container.style.boxSizing = 'border-box';
-  container.style.direction = 'rtl'; // Right-to-Left for Arabic support
+  container.style.direction = 'rtl'; 
   container.style.textAlign = 'right';
 
   // Add robust styling for the content
@@ -41,7 +59,6 @@ async function embedHtmlAsImage(htmlContent: string, pdfDoc: any): Promise<void>
     p { margin: 0 0 1em 0; line-height: 1.5; color: #000; }
     h1, h2, h3, h4, h5, h6 { margin: 1.2em 0 0.8em 0; color: #000; font-weight: bold; page-break-after: avoid; }
     img { max-width: 100%; height: auto; }
-    /* Fix for Excel sheet grids */
     table[border="1"] td { border: 1px solid #999; }
   `;
   container.appendChild(style);
@@ -56,19 +73,16 @@ async function embedHtmlAsImage(htmlContent: string, pdfDoc: any): Promise<void>
   await new Promise(resolve => setTimeout(resolve, 500));
 
   try {
-    // Render the entire content to a single high-res canvas first
-    // scale: 2 ensures high quality (Retina-like) for the PDF
     const canvas = await (window as any).html2canvas(container, {
       scale: 2, 
       useCORS: true,
       logging: false,
-      backgroundColor: '#ffffff', // Ensure no transparency
+      backgroundColor: '#ffffff',
       width: A4_WIDTH_PX,
       windowWidth: A4_WIDTH_PX,
       height: container.scrollHeight,
       windowHeight: container.scrollHeight,
       onclone: (clonedDoc: any) => {
-        // Fix for some visibility issues in cloned document
         const clonedContainer = clonedDoc.querySelector('div');
         if (clonedContainer) {
             clonedContainer.style.visibility = 'visible';
@@ -81,7 +95,6 @@ async function embedHtmlAsImage(htmlContent: string, pdfDoc: any): Promise<void>
     const imgHeight = canvas.height;
     
     // Calculate page height in canvas pixels (based on A4 aspect ratio relative to width)
-    // A4 width/height = 1/1.414.
     const pageCanvasHeight = imgWidth / A4_ASPECT_RATIO;
     
     let currentY = 0;
@@ -98,31 +111,24 @@ async function embedHtmlAsImage(htmlContent: string, pdfDoc: any): Promise<void>
       const ctx = sliceCanvas.getContext('2d');
       
       if (ctx) {
-        // Draw the specific slice from the source canvas
-        // sourceX, sourceY, sourceWidth, sourceHeight, destX, destY, destWidth, destHeight
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
         ctx.drawImage(canvas, 0, currentY, imgWidth, currentSliceHeight, 0, 0, imgWidth, currentSliceHeight);
         
-        // Convert slice to JPG
         const sliceDataUrl = sliceCanvas.toDataURL('image/jpeg', 0.85);
         const sliceBytes = await fetch(sliceDataUrl).then(res => res.arrayBuffer());
         const sliceImage = await pdfDoc.embedJpg(sliceBytes);
 
         // Add PDF page
-        const page = pdfDoc.addPage(); // Default is usually A4-ish, but let's be explicit if needed or rely on auto
+        const page = pdfDoc.addPage(); 
         const pdfPageSize = page.getSize();
         
-        // Scale image to fit the PDF page
-        // We want the width to fit perfectly with some margin if possible, but our canvas is already A4 ratio width-wise.
         const pdfImgDims = sliceImage.scale(1);
-        
-        // Fit width
         const scaleFactor = pdfPageSize.width / pdfImgDims.width;
         
         page.drawImage(sliceImage, {
           x: 0,
-          y: pdfPageSize.height - (pdfImgDims.height * scaleFactor), // Draw from top-left (PDF coords are bottom-left)
+          y: pdfPageSize.height - (pdfImgDims.height * scaleFactor), 
           width: pdfPageSize.width,
           height: pdfImgDims.height * scaleFactor,
         });
@@ -144,12 +150,17 @@ async function embedHtmlAsImage(htmlContent: string, pdfDoc: any): Promise<void>
 
 /**
  * Merges an array of files (images, PDFs, and Office docs) into a single PDF document.
- * @param files An array of File objects to merge, in the desired order.
+ * @param files An array of File objects to merge.
  * @param onProgress A callback function that receives the name of the file currently being processed.
+ * @param passwords An optional object mapping filenames to their passwords.
  * @returns A Promise that resolves with a Uint8Array of the merged PDF.
  */
-export const mergeFilesToPdf = async (files: File[], onProgress?: (fileName: string) => void): Promise<Uint8Array> => {
-  const { PDFDocument, rgb } = (window as any).PDFLib;
+export const mergeFilesToPdf = async (
+    files: File[], 
+    onProgress?: (fileName: string) => void,
+    passwords: Record<string, string> = {}
+): Promise<Uint8Array> => {
+  const { PDFDocument, rgb, PageSizes } = (window as any).PDFLib;
   const mergedPdfDoc = await PDFDocument.create();
 
   for (const file of files) {
@@ -158,7 +169,10 @@ export const mergeFilesToPdf = async (files: File[], onProgress?: (fileName: str
     const fileName = file.name.toLowerCase();
 
     if (fileType.startsWith('image/')) {
-      const page = mergedPdfDoc.addPage();
+      // Force A4 Page for Images (Scanned documents High Accuracy)
+      const page = mergedPdfDoc.addPage(PageSizes.A4);
+      const { width: pageWidth, height: pageHeight } = page.getSize();
+      
       const imageBytes = await file.arrayBuffer();
       let image;
       try {
@@ -167,37 +181,60 @@ export const mergeFilesToPdf = async (files: File[], onProgress?: (fileName: str
         } else if (file.type === 'image/png' || fileName.endsWith('.png')) {
           image = await mergedPdfDoc.embedPng(imageBytes);
         } else {
-            // Try to fallback to PNG embedding for other image types if browser supports it, or skip
-            // Note: pdf-lib mainly supports JPG and PNG.
-             page.drawText(`Unsupported image format: ${file.name}`, { x: 50, y: page.getHeight() / 2, size: 12, color: rgb(0.8, 0.2, 0.2) });
+             page.drawText(`Unsupported image format: ${file.name}`, { x: 50, y: pageHeight / 2, size: 12, color: rgb(0.8, 0.2, 0.2) });
              continue;
         }
 
-        const pageDimensions = page.getSize();
-        const imageDimensions = image.scale(1);
-        const scale = Math.min(pageDimensions.width / imageDimensions.width, pageDimensions.height / imageDimensions.height);
+        const imageDims = image.scale(1);
+        
+        // Calculate scaling to fit within A4 margins (e.g., 20px margin)
+        const margin = 20;
+        const availableWidth = pageWidth - (margin * 2);
+        const availableHeight = pageHeight - (margin * 2);
+
+        // Scale to fit, but do not scale up if image is smaller than page (optional, usually for scanned docs we want to fill)
+        // For scanned docs, we usually want to fit the page.
+        const scale = Math.min(availableWidth / imageDims.width, availableHeight / imageDims.height);
+        
+        const scaledWidth = imageDims.width * scale;
+        const scaledHeight = imageDims.height * scale;
+
+        // Center the image
+        const x = (pageWidth - scaledWidth) / 2;
+        const y = (pageHeight - scaledHeight) / 2;
+
         page.drawImage(image, {
-            x: (pageDimensions.width - imageDimensions.width * scale) / 2,
-            y: (pageDimensions.height - imageDimensions.height * scale) / 2,
-            width: imageDimensions.width * scale,
-            height: imageDimensions.height * scale,
+            x: x,
+            y: y,
+            width: scaledWidth,
+            height: scaledHeight,
         });
       } catch (e) {
           console.error("Image embedding error", e);
-          page.drawText(`Error loading image: ${file.name}`, { x: 50, y: page.getHeight() / 2, size: 12, color: rgb(0.8, 0.2, 0.2) });
+          page.drawText(`Error loading image: ${file.name}`, { x: 50, y: pageHeight / 2, size: 12, color: rgb(0.8, 0.2, 0.2) });
       }
 
     } else if (fileType === 'application/pdf') {
       try {
         const pdfBytes = await file.arrayBuffer();
-        const donorPdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+        // Load with password if provided
+        const password = passwords[file.name] || '';
+        const donorPdfDoc = await PDFDocument.load(pdfBytes, { 
+            ignoreEncryption: false,
+            password: password 
+        });
+        
         const copiedPageIndices = donorPdfDoc.getPageIndices();
         const copiedPages = await mergedPdfDoc.copyPages(donorPdfDoc, copiedPageIndices);
         copiedPages.forEach((page: any) => mergedPdfDoc.addPage(page));
-      } catch (e) {
+      } catch (e: any) {
          console.error(`Could not process PDF file: ${file.name}`, e);
          const page = mergedPdfDoc.addPage();
-         page.drawText(`Could not load PDF: ${file.name}`, { x: 50, y: page.getHeight() / 2, size: 12, color: rgb(0.8, 0.2, 0.2) });
+         let errorMessage = `Could not load PDF: ${file.name}`;
+         if (e.message && e.message.includes('encrypted')) {
+             errorMessage += ' (Password required)';
+         }
+         page.drawText(errorMessage, { x: 50, y: page.getHeight() / 2, size: 12, color: rgb(0.8, 0.2, 0.2) });
       }
     } else if (
         fileType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || 
@@ -205,7 +242,6 @@ export const mergeFilesToPdf = async (files: File[], onProgress?: (fileName: str
     ) {
       try {
           const arrayBuffer = await file.arrayBuffer();
-          // Convert docx to HTML using Mammoth
           const result = await (window as any).mammoth.convertToHtml({ arrayBuffer });
           if (!result.value) {
                throw new Error("No content extracted from Word file");
@@ -214,7 +250,7 @@ export const mergeFilesToPdf = async (files: File[], onProgress?: (fileName: str
       } catch (e) {
           console.error(`Could not process Word file: ${file.name}`, e);
           const page = mergedPdfDoc.addPage();
-          page.drawText(`Could not load Word file: ${file.name}. Ensure it is a valid .docx`, { x: 50, y: page.getHeight() / 2, size: 12, color: rgb(0.8, 0.2, 0.2) });
+          page.drawText(`Could not load Word file: ${file.name}`, { x: 50, y: page.getHeight() / 2, size: 12, color: rgb(0.8, 0.2, 0.2) });
       }
     } else if (
         fileType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || 
@@ -227,14 +263,11 @@ export const mergeFilesToPdf = async (files: File[], onProgress?: (fileName: str
             const data = new Uint8Array(arrayBuffer);
             const workbook = (window as any).XLSX.read(data, { type: 'array' });
             
-            // Loop through all sheets or just the first one? Let's do first valid sheet.
             const sheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[sheetName];
             
-            // Generate HTML with embedded styles for better look
             const html = (window as any).XLSX.utils.sheet_to_html(worksheet, { id: 'excel-table', editable: false });
             
-            // Enhance the Excel HTML with a wrapper for consistent styling
             const wrappedHtml = `
                 <div class="excel-wrapper">
                     <h2 style="text-align:center; margin-bottom: 10px;">${sheetName}</h2>
@@ -248,9 +281,6 @@ export const mergeFilesToPdf = async (files: File[], onProgress?: (fileName: str
             page.drawText(`Could not load Excel file: ${file.name}`, { x: 50, y: page.getHeight() / 2, size: 12, color: rgb(0.8, 0.2, 0.2) });
         }
     } else if (fileName.endsWith('.doc')) {
-        // Fallback for .doc files (Binary Word)
-        // Since we don't have a backend, we can't reliably convert .doc.
-        // We will try a warning page.
         const page = mergedPdfDoc.addPage();
         page.drawText(`Format .doc (Word 97-2003) is not supported directly in browser.`, { x: 50, y: page.getHeight() / 2 + 20, size: 14, color: rgb(0, 0, 0) });
         page.drawText(`Please save as .docx and try again.`, { x: 50, y: page.getHeight() / 2, size: 12, color: rgb(0.5, 0.5, 0.5) });
