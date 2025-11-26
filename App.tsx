@@ -1,10 +1,11 @@
 
+
 import React, { useState, useCallback, useEffect } from 'react';
 import { FileUpload } from './components/FileUpload';
 import { FilePreviewCard } from './components/FilePreviewCard';
 import { Spinner } from './components/Spinner';
-import { mergeFilesToPdf, isPdfEncrypted } from './services/pdfService';
-import { DownloadIcon, MergeIcon, ResetIcon, WhatsappIcon, FacebookIcon, SortAscendingIcon, SortDescendingIcon, OrganizeIcon, ConvertIcon, EyeIcon } from './components/icons';
+import { mergeFilesToPdf, isPdfEncrypted, unlockPdfFile, MergeOptions } from './services/pdfService';
+import { DownloadIcon, MergeIcon, ResetIcon, WhatsappIcon, FacebookIcon, SortAscendingIcon, SortDescendingIcon, OrganizeIcon, ConvertIcon, EyeIcon, LayoutIcon, MarginIcon, CheckIcon } from './components/icons';
 import { PdfOrganizer } from './components/PdfOrganizer';
 import { FileConverter } from './components/FileConverter';
 
@@ -15,6 +16,7 @@ type ActiveTab = 'merger' | 'organizer' | 'converter';
 interface ExtendedFile {
     file: File;
     isProtected: boolean;
+    isUnlocking?: boolean;
 }
 
 const App: React.FC = () => {
@@ -31,11 +33,13 @@ const App: React.FC = () => {
   const [processingFileName, setProcessingFileName] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('merger');
 
+  // Merge Options
+  const [pageSize, setPageSize] = useState<MergeOptions['pageSize']>('A4');
+  const [margin, setMargin] = useState<MergeOptions['margin']>('Small');
+
   const handleFilesSelected = useCallback(async (selectedFiles: File[]) => {
-    // Check for duplicates
     const newFiles = selectedFiles.filter(sf => !files.some(pf => pf.file.name === sf.name && pf.file.size === sf.size));
     
-    // Quick check for encryption
     const processedNewFiles: ExtendedFile[] = [];
     for (const f of newFiles) {
         let isProtected = false;
@@ -50,8 +54,38 @@ const App: React.FC = () => {
     setPdfUrl(null);
   }, [files]);
   
-  const handlePasswordChange = (fileName: string, password: string) => {
+  const handlePasswordChange = async (fileName: string, password: string) => {
       setFilePasswords(prev => ({ ...prev, [fileName]: password }));
+
+      // Debounce slightly or check length to assume a valid password attempt
+      if (password.length > 0) {
+          // Attempt to unlock automatically
+          const targetFileWrapper = files.find(f => f.file.name === fileName);
+          if (targetFileWrapper && targetFileWrapper.isProtected) {
+              setFiles(prev => prev.map(f => f.file.name === fileName ? { ...f, isUnlocking: true } : f));
+              
+              const unlockedFile = await unlockPdfFile(targetFileWrapper.file, password);
+              
+              if (unlockedFile) {
+                  // Success! Replace the file with the unlocked version
+                  setFiles(prev => prev.map(f => {
+                      if (f.file.name === fileName) {
+                          return { file: unlockedFile, isProtected: false, isUnlocking: false };
+                      }
+                      return f;
+                  }));
+                  // Clear password from state as it's no longer needed
+                  setFilePasswords(prev => {
+                      const next = { ...prev };
+                      delete next[fileName];
+                      return next;
+                  });
+              } else {
+                  // Failed (wrong password), stop spinner
+                   setFiles(prev => prev.map(f => f.file.name === fileName ? { ...f, isUnlocking: false } : f));
+              }
+          }
+      }
   };
 
   const sortFiles = (criteria: SortCriteria, order: SortOrder, currentFiles: ExtendedFile[], pinnedFileName: string | null): ExtendedFile[] => {
@@ -89,7 +123,6 @@ const App: React.FC = () => {
     if (fileName === firstPageFileName) {
       setFirstPageFileName(null);
     }
-    // Cleanup password
     setFilePasswords(prev => {
         const next = {...prev};
         delete next[fileName];
@@ -156,10 +189,10 @@ const App: React.FC = () => {
       return;
     }
     
-    // Check if passwords needed
-    const protectedFilesWithoutPassword = files.filter(f => f.isProtected && !filePasswords[f.file.name]);
-    if (protectedFilesWithoutPassword.length > 0) {
-        setError(`يرجى إدخال كلمة المرور للملفات المحمية: ${protectedFilesWithoutPassword.map(f => f.file.name).join(', ')}`);
+    // Check if any protected files remain
+    const protectedFiles = files.filter(f => f.isProtected);
+    if (protectedFiles.length > 0) {
+        setError(`يرجى إدخال كلمة المرور للملفات المحمية: ${protectedFiles.map(f => f.file.name).join(', ')}`);
         return;
     }
 
@@ -168,7 +201,12 @@ const App: React.FC = () => {
     setPdfUrl(null);
     try {
       const plainFiles = files.map(f => f.file);
-      const pdfBytes = await mergeFilesToPdf(plainFiles, (fileName) => setProcessingFileName(fileName), filePasswords);
+      const pdfBytes = await mergeFilesToPdf(
+          plainFiles, 
+          (fileName) => setProcessingFileName(fileName), 
+          {}, // No passwords needed as we pre-decrypted everything
+          { pageSize, margin }
+      );
       const blob = new Blob([pdfBytes], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       setPdfUrl(url);
@@ -201,108 +239,133 @@ const App: React.FC = () => {
   `;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50/50 via-slate-50 to-purple-50/50 font-sans flex flex-col items-center p-4 sm:p-6 selection:bg-indigo-100 selection:text-indigo-700">
+    <div className="min-h-screen bg-slate-50 font-sans flex flex-col items-center p-4 sm:p-6 selection:bg-indigo-100 selection:text-indigo-700">
       <div className="w-full max-w-5xl mx-auto flex-grow flex flex-col">
-        {/* Header */}
-        <header className="text-center mb-10 pt-6 animate-fade-in">
-          <div className="inline-flex items-center justify-center p-3 bg-white rounded-2xl shadow-xl shadow-indigo-100 mb-6 border border-indigo-50">
-             <div className="bg-gradient-to-tr from-indigo-500 to-purple-500 p-2.5 rounded-xl text-white">
-                 <MergeIcon />
-            </div>
+        {/* Header - Professional */}
+        <header className="flex flex-col items-center mb-10 pt-4 animate-fade-in">
+          <div className="mb-4">
+               {/* Favicon/Logo SVG included inline for visual consistency if needed, but we rely on text primarily */}
+               <div className="w-16 h-16 bg-white rounded-2xl shadow-lg shadow-indigo-100 flex items-center justify-center border border-indigo-50">
+                    <svg className="w-10 h-10 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                    </svg>
+               </div>
           </div>
-          <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-gray-800 via-indigo-900 to-gray-800 tracking-tight mb-4 drop-shadow-sm">
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-800 tracking-tight mb-2">
             MANEA PDF
           </h1>
-          <p className="text-gray-500 text-lg max-w-lg mx-auto leading-relaxed font-medium">
-            الرفيق الذكي لمستنداتك الرقمية
+          <p className="text-slate-500 text-base font-medium">
+            أدوات احترافية لإدارة المستندات الرقمية
           </p>
         </header>
         
-        {/* Main Card */}
-        <div className="bg-white/70 backdrop-blur-xl rounded-[2rem] shadow-2xl shadow-indigo-200/40 border border-white/50 overflow-hidden flex flex-col transition-all duration-500">
+        {/* Main Interface */}
+        <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden flex flex-col transition-all duration-500">
           
-          {/* Custom Tabs */}
-          <div className="flex p-1.5 mx-4 mt-4 bg-gray-100/50 rounded-2xl relative">
-            <div 
-                className="absolute top-1.5 bottom-1.5 bg-white rounded-xl shadow-sm transition-all duration-300 ease-out"
-                style={{ 
-                    left: activeTab === 'converter' ? '0.5%' : activeTab === 'organizer' ? '33.33%' : '66.66%',
-                    right: activeTab === 'converter' ? '66.66%' : activeTab === 'organizer' ? '33.33%' : '0.5%'
-                }}
-            />
-            
-            <button onClick={() => setActiveTab('merger')} className={getTabClass('merger')}>
-              <MergeIcon /> 
-              <span>دمج الملفات</span>
+          {/* Navigation */}
+          <div className="flex bg-slate-50 border-b border-slate-100 p-1">
+            <button onClick={() => setActiveTab('merger')} className={`flex-1 py-3 rounded-xl flex items-center justify-center gap-2 font-bold text-sm transition-all ${activeTab === 'merger' ? 'bg-white text-indigo-600 shadow-sm border border-slate-100' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100/50'}`}>
+              <MergeIcon /> <span>دمج الملفات</span>
             </button>
-            <button onClick={() => setActiveTab('organizer')} className={getTabClass('organizer')}>
-              <OrganizeIcon /> 
-              <span>تنظيم PDF</span>
+            <button onClick={() => setActiveTab('organizer')} className={`flex-1 py-3 rounded-xl flex items-center justify-center gap-2 font-bold text-sm transition-all ${activeTab === 'organizer' ? 'bg-white text-indigo-600 shadow-sm border border-slate-100' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100/50'}`}>
+              <OrganizeIcon /> <span>تنظيم PDF</span>
             </button>
-            <button onClick={() => setActiveTab('converter')} className={getTabClass('converter')}>
-              <ConvertIcon /> 
-              <span>تحويل للمستندات</span>
+            <button onClick={() => setActiveTab('converter')} className={`flex-1 py-3 rounded-xl flex items-center justify-center gap-2 font-bold text-sm transition-all ${activeTab === 'converter' ? 'bg-white text-indigo-600 shadow-sm border border-slate-100' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100/50'}`}>
+              <ConvertIcon /> <span>تحويل الصيغ</span>
             </button>
           </div>
 
-          <main className="p-6 md:p-10 flex-grow min-h-[400px]">
+          <main className="p-6 md:p-10 flex-grow min-h-[500px]">
             {activeTab === 'merger' && (
               pdfUrl ? (
                 <div className="flex flex-col items-center justify-center py-12 animate-fade-in-up">
-                  <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mb-6 shadow-sm border border-green-100">
-                    <svg className="w-10 h-10 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
+                  <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mb-6 border border-emerald-100">
+                    <CheckIcon />
                   </div>
-                  <h2 className="text-3xl font-bold text-gray-800 mb-3">تم إنشاء الملف بنجاح!</h2>
-                  <p className="text-gray-500 mb-10">ملفك جاهز للمعاينة والتحميل بجودة عالية</p>
+                  <h2 className="text-2xl font-bold text-slate-800 mb-2">تم إنشاء الملف بنجاح</h2>
+                  <p className="text-slate-500 mb-10 text-sm">الملف جاهز للعرض أو التحميل</p>
                   
                   <div className="flex flex-col sm:flex-row gap-4 w-full max-w-md">
-                    <button onClick={() => window.open(pdfUrl, '_blank')} className="flex-1 inline-flex items-center justify-center gap-2 bg-white text-gray-700 border border-gray-200 font-bold py-4 px-6 rounded-2xl hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm">
+                    <button onClick={() => window.open(pdfUrl, '_blank')} className="flex-1 inline-flex items-center justify-center gap-2 bg-white text-slate-700 border border-slate-200 font-bold py-3.5 px-6 rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all">
                         <EyeIcon /> معاينة
                     </button>
-                    <a href={pdfUrl} download={`merged-${Date.now()}.pdf`} className="flex-1 inline-flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white font-bold py-4 px-6 rounded-2xl hover:shadow-lg hover:shadow-indigo-500/30 transition-all hover:translate-y-[-2px]">
+                    <a href={pdfUrl} download={`merged-${Date.now()}.pdf`} className="flex-1 inline-flex items-center justify-center gap-2 bg-indigo-600 text-white font-bold py-3.5 px-6 rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 hover:shadow-indigo-200">
                         <DownloadIcon /> تحميل PDF
                     </a>
                   </div>
-                  <button onClick={handleReset} className="mt-8 text-sm text-gray-400 hover:text-indigo-600 font-medium transition-colors flex items-center gap-2 px-4 py-2 rounded-lg hover:bg-gray-50">
+                  <button onClick={handleReset} className="mt-8 text-sm text-slate-400 hover:text-indigo-600 font-medium transition-colors flex items-center gap-2 px-4 py-2 rounded-lg hover:bg-slate-50">
                     <ResetIcon /> دمج ملفات أخرى
                   </button>
                 </div>
               ) : (
-                <div className="animate-fade-in">
+                <div className="animate-fade-in space-y-8">
                   <FileUpload 
                     onFilesSelected={handleFilesSelected} 
                     disabled={isLoading} 
-                    descriptionText="صور (PNG, JPG), PDF, Word (DOCX), Excel (XLSX)" 
+                    descriptionText="اسحب وأفلت صور أو ملفات PDF أو مستندات Office هنا" 
                     acceptTypes="image/png, image/jpeg, application/pdf, .docx, .xlsx, application/vnd.openxmlformats-officedocument.wordprocessingml.document, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" 
                   />
                   
                   {files.length > 0 && (
-                    <div className="mt-10">
-                      <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
-                        <h2 className="text-xl font-bold text-gray-800 flex items-center gap-3">
-                            <span className="bg-indigo-600 text-white text-xs px-2.5 py-1 rounded-lg shadow-sm shadow-indigo-200">{files.length}</span>
-                            الملفات المحددة
-                        </h2>
-                        <div className="flex items-center gap-2 text-sm bg-white p-1.5 rounded-full border border-gray-100 shadow-sm">
-                            <span className="text-gray-400 px-3 text-xs font-medium">ترتيب حسب:</span>
-                            <button onClick={() => handleSortCriteriaChange('name')} className={getSortButtonClass('name')}>الاسم</button>
-                            <button onClick={() => handleSortCriteriaChange('size')} className={getSortButtonClass('size')}>الحجم</button>
-                            <button onClick={() => handleSortCriteriaChange('date')} className={getSortButtonClass('date')}>التاريخ</button>
-                            <div className="w-px h-4 bg-gray-200 mx-1"></div>
-                            <button onClick={handleSortOrderChange} className="p-1.5 rounded-full text-gray-500 hover:bg-indigo-50 hover:text-indigo-600 transition-all">
-                                {sortOrder === 'asc' ? <SortAscendingIcon /> : <SortDescendingIcon />}
-                            </button>
+                    <div className="animate-fade-in">
+                      {/* Controls Bar */}
+                      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                         {/* Sorting */}
+                        <div className="flex flex-wrap items-center gap-2">
+                             <div className="text-sm font-bold text-slate-700 flex items-center gap-2 ml-4">
+                                <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+                                {files.length} ملفات
+                             </div>
+                             <div className="h-6 w-px bg-slate-200 mx-2 hidden sm:block"></div>
+                             <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-slate-200">
+                                <button onClick={() => handleSortCriteriaChange('name')} className={getSortButtonClass('name')}>الاسم</button>
+                                <button onClick={() => handleSortCriteriaChange('size')} className={getSortButtonClass('size')}>الحجم</button>
+                                <button onClick={handleSortOrderChange} className="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors">
+                                    {sortOrder === 'asc' ? <SortAscendingIcon /> : <SortDescendingIcon />}
+                                </button>
+                             </div>
+                        </div>
+
+                        {/* Output Settings */}
+                        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+                            <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-slate-200 w-full sm:w-auto">
+                                <LayoutIcon />
+                                <span className="text-xs font-bold text-slate-500 whitespace-nowrap">حجم الصفحة:</span>
+                                <select 
+                                    value={pageSize} 
+                                    onChange={(e) => setPageSize(e.target.value as any)}
+                                    className="bg-transparent text-sm font-bold text-indigo-600 outline-none w-full"
+                                >
+                                    <option value="A4">A4</option>
+                                    <option value="Letter">Letter</option>
+                                    <option value="Legal">Legal</option>
+                                    <option value="Original">الأصلي</option>
+                                </select>
+                            </div>
+                            <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-slate-200 w-full sm:w-auto">
+                                <MarginIcon />
+                                <span className="text-xs font-bold text-slate-500 whitespace-nowrap">الهوامش:</span>
+                                <select 
+                                    value={margin} 
+                                    onChange={(e) => setMargin(e.target.value as any)}
+                                    className="bg-transparent text-sm font-bold text-indigo-600 outline-none w-full"
+                                >
+                                    <option value="Small">صغيرة</option>
+                                    <option value="Normal">عادية</option>
+                                    <option value="Big">كبيرة</option>
+                                    <option value="None">بدون</option>
+                                </select>
+                            </div>
                         </div>
                       </div>
                       
-                      <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar p-1">
+                      <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
                         {files.map((wrapper, index) => (
                           <FilePreviewCard 
                             key={`${wrapper.file.name}-${wrapper.file.lastModified}`} 
                             file={wrapper.file} 
                             isProtected={wrapper.isProtected}
+                            isUnlocking={wrapper.isUnlocking}
                             onPasswordChange={handlePasswordChange}
                             passwordValue={filePasswords[wrapper.file.name] || ''}
                             isFirstPage={wrapper.file.name === firstPageFileName} 
@@ -319,14 +382,14 @@ const App: React.FC = () => {
                     </div>
                   )}
                   {error && (
-                    <div className="mt-6 p-4 bg-red-50/50 border border-red-100 rounded-2xl flex items-center gap-3 text-red-600 animate-pulse">
+                    <div className="p-4 bg-red-50 border border-red-100 rounded-xl flex items-center gap-3 text-red-600 text-sm font-medium">
                         <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                        <p className="font-medium">{error}</p>
+                        <p>{error}</p>
                     </div>
                   )}
-                  <div className="mt-10 pt-6 border-t border-gray-100">
-                    <button onClick={handleMerge} disabled={files.length === 0 || isLoading} className="w-full bg-gradient-to-r from-indigo-600 to-indigo-700 text-white font-bold py-5 px-6 rounded-2xl hover:shadow-xl hover:shadow-indigo-500/30 disabled:opacity-50 disabled:shadow-none disabled:cursor-not-allowed transition-all duration-300 flex items-center justify-center gap-3 text-lg transform active:scale-[0.99] group">
-                      {isLoading ? (<><Spinner className="h-6 w-6 text-white"/><span>جاري المعالجة...</span></>) : (<><MergeIcon /><span>دمج وإنشاء PDF</span><span className="hidden group-hover:inline-block transition-all mr-2">✨</span></>)}
+                  <div className="pt-6 border-t border-slate-100">
+                    <button onClick={handleMerge} disabled={files.length === 0 || isLoading} className="w-full bg-indigo-600 text-white font-bold py-4 px-6 rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-100 flex items-center justify-center gap-3 text-lg">
+                      {isLoading ? (<><Spinner className="h-6 w-6 text-white"/><span>جاري المعالجة...</span></>) : (<><MergeIcon /><span>دمج وإنشاء PDF</span></>)}
                     </button>
                   </div>
                 </div>
@@ -338,10 +401,10 @@ const App: React.FC = () => {
         </div>
         
         <footer className="text-center mt-12 mb-6 animate-fade-in">
-            <p className="text-gray-400 text-sm font-medium">تم التطوير بإتقان بواسطة <span className="text-indigo-500 font-bold">مانع عزالدين</span></p>
-            <div className="flex justify-center items-center gap-6 mt-4">
-                <a href="https://wa.me/967772655825" target="_blank" rel="noopener noreferrer" className="text-gray-300 hover:text-green-500 transition-colors transform hover:scale-110" aria-label="Contact on WhatsApp"><WhatsappIcon /></a>
-                <a href="https://www.facebook.com/9l7iz" target="_blank" rel="noopener noreferrer" className="text-gray-300 hover:text-blue-600 transition-colors transform hover:scale-110" aria-label="Visit Facebook profile"><FacebookIcon /></a>
+            <p className="text-slate-400 text-sm font-medium">تم التطوير بإتقان بواسطة <span className="text-indigo-600 font-bold">مانع عزالدين</span></p>
+            <div className="flex justify-center items-center gap-6 mt-4 opacity-70 hover:opacity-100 transition-opacity">
+                <a href="https://wa.me/967772655825" target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-emerald-500 transition-colors transform hover:scale-110"><WhatsappIcon /></a>
+                <a href="https://www.facebook.com/9l7iz" target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-blue-600 transition-colors transform hover:scale-110"><FacebookIcon /></a>
             </div>
         </footer>
       </div>
@@ -354,21 +417,21 @@ const App: React.FC = () => {
           background: transparent;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb {
-          background-color: #e0e7ff;
+          background-color: #cbd5e1;
           border-radius: 20px;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background-color: #c7d2fe;
+          background-color: #94a3b8;
         }
         @keyframes fade-in {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
         }
         .animate-fade-in {
-            animation: fade-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            animation: fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
         .animate-fade-in-up {
-            animation: fade-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            animation: fade-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
       `}</style>
     </div>

@@ -47,12 +47,12 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFilesSelected, disable
 
   const dropzoneClasses = `
     relative group flex flex-col items-center justify-center w-full h-64 
-    border-2 border-dashed rounded-[1.5rem] cursor-pointer transition-all duration-300 
+    border-2 border-dashed rounded-[1.2rem] cursor-pointer transition-all duration-300 
     ${disabled 
-      ? 'bg-gray-50 border-gray-200 cursor-not-allowed opacity-60' 
+      ? 'bg-slate-50 border-slate-200 cursor-not-allowed opacity-60' 
       : isDragging 
-        ? 'border-indigo-500 bg-indigo-50/60 scale-[1.01] shadow-lg shadow-indigo-100' 
-        : 'border-indigo-100/80 bg-white hover:bg-indigo-50/40 hover:border-indigo-300 hover:shadow-lg hover:shadow-indigo-100/50'
+        ? 'border-indigo-500 bg-indigo-50/50 scale-[1.01] shadow-lg shadow-indigo-100' 
+        : 'border-slate-200 bg-white hover:bg-slate-50 hover:border-indigo-300 hover:shadow-lg hover:shadow-indigo-500/5'
     }
   `;
 
@@ -66,13 +66,13 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFilesSelected, disable
       onDrop={handleDrop}
     >
       <div className="flex flex-col items-center justify-center pt-5 pb-6 text-center z-10 px-4">
-        <div className={`p-5 rounded-2xl mb-4 transition-colors shadow-sm ${isDragging ? 'bg-indigo-200 text-indigo-700' : 'bg-indigo-50 text-indigo-500 group-hover:bg-indigo-100 group-hover:text-indigo-600'}`}>
+        <div className={`p-4 rounded-2xl mb-4 transition-colors shadow-sm border ${isDragging ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-slate-50 text-indigo-600 border-slate-100 group-hover:bg-indigo-50 group-hover:border-indigo-100'}`}>
             <UploadIcon />
         </div>
-        <p className="mb-3 text-lg text-gray-700 font-medium">
-          <span className="font-bold text-indigo-600 hover:underline decoration-2 underline-offset-4 decoration-indigo-200">اضغط للرفع</span> أو اسحب الملفات هنا
+        <p className="mb-2 text-lg text-slate-700 font-bold">
+          <span className="text-indigo-600 hover:underline decoration-2 underline-offset-4 decoration-indigo-200">اضغط للرفع</span> أو اسحب الملفات هنا
         </p>
-        <p className="text-sm text-gray-400 max-w-sm leading-relaxed">{descriptionText}</p>
+        <p className="text-sm text-slate-400 max-w-sm leading-relaxed font-medium">{descriptionText}</p>
       </div>
       <input
         id="dropzone-file"

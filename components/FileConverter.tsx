@@ -1,36 +1,92 @@
 
+
 import React, { useState, useCallback } from 'react';
 import { FileUpload } from './FileUpload';
 import { Spinner } from './Spinner';
-import { mergeFilesToPdf } from '../services/pdfService';
-import { DownloadIcon, FileIcon, WordIcon, ExcelIcon, ConvertIcon, EyeIcon } from './icons';
+import { mergeFilesToPdf, isPdfEncrypted, unlockPdfFile } from '../services/pdfService';
+import { DownloadIcon, FileIcon, WordIcon, ExcelIcon, ConvertIcon, EyeIcon, LockIcon, UnlockIcon } from './icons';
 
 interface ConvertedFile {
     originalFile: File;
     status: 'pending' | 'converting' | 'done' | 'error';
     pdfUrl?: string;
     errorMessage?: string;
+    isProtected: boolean;
+    password?: string;
+    isUnlocking?: boolean;
 }
 
 export const FileConverter: React.FC = () => {
   const [fileList, setFileList] = useState<ConvertedFile[]>([]);
   
-  const handleFilesSelected = useCallback((selectedFiles: File[]) => {
-    const newFiles = selectedFiles.map(file => ({
-        originalFile: file,
-        status: 'pending' as const
+  const handleFilesSelected = useCallback(async (selectedFiles: File[]) => {
+    // Process files to check for encryption initially
+    const newFilesData = await Promise.all(selectedFiles.map(async (file) => {
+        let isProtected = false;
+        if (file.type === 'application/pdf') {
+            isProtected = await isPdfEncrypted(file);
+        }
+        return {
+            originalFile: file,
+            status: 'pending' as const,
+            isProtected,
+            password: '',
+            isUnlocking: false
+        };
     }));
-    setFileList(prev => [...prev, ...newFiles]);
+    
+    setFileList(prev => [...prev, ...newFilesData]);
   }, []);
+
+  const handlePasswordChange = async (index: number, val: string) => {
+      // Update password text
+      setFileList(prev => prev.map((f, i) => i === index ? { ...f, password: val } : f));
+
+      // Attempt auto-unlock if password length is reasonable
+      if (val.length > 0) {
+          const targetFile = fileList[index];
+          if (targetFile.isProtected && !targetFile.isUnlocking) {
+               // Optimistic UI for unlocking
+               setFileList(prev => prev.map((f, i) => i === index ? { ...f, isUnlocking: true } : f));
+               
+               const unlockedFile = await unlockPdfFile(targetFile.originalFile, val);
+               
+               if (unlockedFile) {
+                   // Success! Replace original file with unlocked one
+                   setFileList(prev => prev.map((f, i) => i === index ? { 
+                       ...f, 
+                       originalFile: unlockedFile, 
+                       isProtected: false, 
+                       isUnlocking: false,
+                       password: '',
+                       // We can even set status to done? No, let user convert still to choose options if any, 
+                       // but for a converter, maybe we just want to offer the unlocked PDF?
+                       // Let's stick to standard flow: now it's just a normal PDF ready to convert/download.
+                   } : f));
+               } else {
+                   // Failed, stop spinner
+                   setFileList(prev => prev.map((f, i) => i === index ? { ...f, isUnlocking: false } : f));
+               }
+          }
+      }
+  };
 
   const convertFile = async (index: number) => {
       const item = fileList[index];
       if (item.status === 'converting' || item.status === 'done') return;
 
+      if (item.isProtected && !item.password) {
+          alert('هذا الملف محمي. يرجى إدخال كلمة المرور أولاً.');
+          return;
+      }
+
       setFileList(prev => prev.map((f, i) => i === index ? { ...f, status: 'converting' } : f));
 
       try {
-          const pdfBytes = await mergeFilesToPdf([item.originalFile]);
+          // If already unlocked (replaced), password not needed. If still protected (shouldn't happen if auto-unlock works, but fallback), use pass.
+          const passwords = item.password ? { [item.originalFile.name]: item.password } : {};
+          
+          const pdfBytes = await mergeFilesToPdf([item.originalFile], undefined, passwords);
           const blob = new Blob([pdfBytes], { type: 'application/pdf' });
           const url = URL.createObjectURL(blob);
           
@@ -50,7 +106,7 @@ export const FileConverter: React.FC = () => {
       const name = file.name.toLowerCase();
       if (name.endsWith('.docx') || name.endsWith('.doc') || file.type.includes('word')) return <WordIcon className="w-8 h-8 text-blue-600" />;
       if (name.endsWith('.xlsx') || name.endsWith('.xls') || file.type.includes('sheet') || file.type.includes('excel')) return <ExcelIcon className="w-8 h-8 text-emerald-600" />;
-      return <FileIcon className="w-8 h-8 text-gray-500" />;
+      return <FileIcon className="w-8 h-8 text-slate-500" />;
   };
 
   return (
@@ -58,31 +114,58 @@ export const FileConverter: React.FC = () => {
       <div className="mb-10">
           <FileUpload 
             onFilesSelected={handleFilesSelected} 
-            descriptionText="Word (DOCX/DOC), Excel (XLSX/XLS), صور" 
-            acceptTypes=".docx, .doc, .xlsx, .xls, application/vnd.openxmlformats-officedocument.wordprocessingml.document, application/msword, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel, image/*" 
+            descriptionText="Word, Excel, صور, PDF محمي" 
+            acceptTypes=".docx, .doc, .xlsx, .xls, application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document, application/msword, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel, image/*" 
           />
       </div>
 
       <div className="space-y-4">
           {fileList.map((item, index) => (
-              <div key={index} className="flex flex-col sm:flex-row items-center p-4 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-lg hover:shadow-indigo-500/5 transition-all duration-300">
-                  <div className="flex items-center w-full sm:w-auto mb-3 sm:mb-0">
-                      <div className="mr-4 p-2.5 bg-gray-50 rounded-xl border border-gray-100">
+              <div key={index} className="flex flex-col md:flex-row items-center p-4 bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-lg hover:shadow-indigo-500/5 transition-all duration-300">
+                  <div className="flex items-center w-full md:w-auto mb-3 md:mb-0">
+                      <div className="mr-4 p-2.5 bg-slate-50 rounded-xl border border-slate-100 relative">
                           {getIcon(item.originalFile)}
+                          {item.isProtected && (
+                              <div className="absolute -top-1 -right-1 bg-white rounded-full p-0.5 shadow-sm border border-red-100 animate-pulse">
+                                  {item.isUnlocking ? <Spinner className="w-3 h-3 text-indigo-500" /> : <LockIcon />}
+                              </div>
+                          )}
                       </div>
                       <div className="flex-grow min-w-0">
-                          <p className="text-sm font-bold text-gray-800 truncate">{item.originalFile.name}</p>
-                          <p className="text-xs text-gray-400">{(item.originalFile.size / 1024).toFixed(1)} KB</p>
+                          <p className="text-sm font-bold text-slate-800 truncate max-w-[200px]">{item.originalFile.name}</p>
+                          <div className="flex items-center gap-2">
+                             <p className="text-xs text-slate-400">{(item.originalFile.size / 1024).toFixed(1)} KB</p>
+                             {item.isProtected && <span className="text-[10px] bg-red-50 text-red-500 px-1.5 py-0.5 rounded border border-red-100">محمي</span>}
+                          </div>
                       </div>
                   </div>
+
+                  {item.isProtected && item.status === 'pending' && (
+                      <div className="w-full md:w-auto md:mx-4 mb-3 md:mb-0 relative">
+                          <input 
+                            type="password" 
+                            placeholder="أدخل كلمة المرور..." 
+                            value={item.password || ''}
+                            onChange={(e) => handlePasswordChange(index, e.target.value)}
+                            disabled={item.isUnlocking}
+                            className="w-full md:w-48 text-sm px-3 py-2 border border-red-200 rounded-lg bg-red-50 focus:bg-white focus:border-red-400 focus:ring-2 focus:ring-red-100 outline-none transition-all placeholder-red-300 text-slate-700 font-medium disabled:opacity-70"
+                          />
+                           {item.isUnlocking && (
+                                <div className="absolute left-2 top-1/2 -translate-y-1/2">
+                                    <Spinner className="w-4 h-4 text-indigo-500" />
+                                </div>
+                           )}
+                      </div>
+                  )}
                   
-                  <div className="flex-shrink-0 w-full sm:w-auto flex items-center gap-3 sm:mr-auto justify-end mt-2 sm:mt-0 pt-3 sm:pt-0 border-t sm:border-0 border-gray-50">
+                  <div className="flex-shrink-0 w-full md:w-auto flex items-center gap-3 md:mr-auto justify-end mt-2 md:mt-0 pt-3 md:pt-0 border-t md:border-0 border-slate-50">
                       {item.status === 'pending' && (
                           <button 
                             onClick={() => convertFile(index)}
-                            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200"
+                            className="flex-1 md:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled={item.isUnlocking}
                           >
-                              <ConvertIcon /> تحويل الآن
+                              <ConvertIcon /> {item.isProtected ? 'فك القفل وتحويل' : 'تحويل PDF'}
                           </button>
                       )}
                       {item.status === 'converting' && (
@@ -94,15 +177,15 @@ export const FileConverter: React.FC = () => {
                           <>
                             <button 
                                 onClick={() => handlePreview(item.pdfUrl!)}
-                                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-200 text-sm font-bold rounded-xl hover:bg-gray-50 transition-colors"
+                                className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-white text-slate-700 border border-slate-200 text-sm font-bold rounded-xl hover:bg-slate-50 transition-colors"
                                 title="معاينة الملف"
                             >
                                 <EyeIcon /> معاينة
                             </button>
                             <a 
                                 href={item.pdfUrl} 
-                                download={`${item.originalFile.name.split('.')[0]}.pdf`}
-                                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-emerald-500 text-white text-sm font-bold rounded-xl hover:bg-emerald-600 transition-colors shadow-sm shadow-emerald-200"
+                                download={`${item.originalFile.name.split('.')[0]}_converted.pdf`}
+                                className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-emerald-500 text-white text-sm font-bold rounded-xl hover:bg-emerald-600 transition-colors shadow-sm shadow-emerald-200"
                             >
                                 <DownloadIcon /> تحميل
                             </a>
@@ -116,11 +199,11 @@ export const FileConverter: React.FC = () => {
           ))}
           
           {fileList.length === 0 && (
-              <div className="text-center py-16 bg-gray-50/50 rounded-3xl border border-dashed border-gray-200">
-                  <div className="inline-block p-4 bg-gray-100 rounded-full mb-3 text-gray-400">
+              <div className="text-center py-16 bg-slate-50 rounded-3xl border border-dashed border-slate-200">
+                  <div className="inline-block p-4 bg-white rounded-full mb-3 text-slate-300 shadow-sm border border-slate-100">
                      <ConvertIcon />
                   </div>
-                  <p className="text-gray-400 text-sm font-medium">لم يتم اختيار أي ملفات للتحويل بعد</p>
+                  <p className="text-slate-400 text-sm font-medium">لم يتم اختيار أي ملفات للتحويل بعد</p>
               </div>
           )}
       </div>

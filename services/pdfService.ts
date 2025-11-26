@@ -1,6 +1,12 @@
 
+
 // This tells TypeScript that these libraries are available globally, loaded from the CDN.
 // We access them directly as they are on the window object.
+
+export interface MergeOptions {
+  pageSize: 'A4' | 'Letter' | 'Legal' | 'Original';
+  margin: 'None' | 'Small' | 'Normal' | 'Big';
+}
 
 /**
  * Checks if a PDF file is encrypted (password protected).
@@ -21,6 +27,27 @@ export const isPdfEncrypted = async (file: File): Promise<boolean> => {
     // If we can't determine, assume not encrypted or corrupt, let the main process handle it
     return false;
   }
+};
+
+/**
+ * Attempts to unlock a PDF file with a password and returns a new, unprotected File object.
+ * Returns null if the password is incorrect or decryption fails.
+ */
+export const unlockPdfFile = async (file: File, password: string): Promise<File | null> => {
+    const { PDFDocument } = (window as any).PDFLib;
+    try {
+        const arrayBuffer = await file.arrayBuffer();
+        // Load with password
+        const pdfDoc = await PDFDocument.load(arrayBuffer, { password, ignoreEncryption: false });
+        // Save without encryption
+        const pdfBytes = await pdfDoc.save();
+        
+        // Create new File object
+        const newBlob = new Blob([pdfBytes], { type: 'application/pdf' });
+        return new File([newBlob], file.name, { type: 'application/pdf', lastModified: Date.now() });
+    } catch (error) {
+        return null;
+    }
 };
 
 /**
@@ -52,7 +79,7 @@ async function embedHtmlAsImage(htmlContent: string, pdfDoc: any): Promise<void>
   // Add robust styling for the content
   const style = document.createElement('style');
   style.innerHTML = `
-    body { font-family: 'Arial', 'Segoe UI', sans-serif; color: #000; -webkit-font-smoothing: antialiased; }
+    body { font-family: 'Cairo', 'Arial', 'Segoe UI', sans-serif; color: #000; -webkit-font-smoothing: antialiased; }
     table { border-collapse: collapse; width: 100%; font-size: 12px; table-layout: auto; margin-bottom: 20px; direction: rtl; }
     th, td { border: 1px solid #000; padding: 6px; text-align: right; vertical-align: top; word-break: break-word; }
     th { background-color: #f0f0f0; font-weight: bold; }
@@ -153,15 +180,38 @@ async function embedHtmlAsImage(htmlContent: string, pdfDoc: any): Promise<void>
  * @param files An array of File objects to merge.
  * @param onProgress A callback function that receives the name of the file currently being processed.
  * @param passwords An optional object mapping filenames to their passwords.
+ * @param options Options for Page Size and Margins.
  * @returns A Promise that resolves with a Uint8Array of the merged PDF.
  */
 export const mergeFilesToPdf = async (
     files: File[], 
     onProgress?: (fileName: string) => void,
-    passwords: Record<string, string> = {}
+    passwords: Record<string, string> = {},
+    options: MergeOptions = { pageSize: 'A4', margin: 'Small' }
 ): Promise<Uint8Array> => {
   const { PDFDocument, rgb, PageSizes } = (window as any).PDFLib;
   const mergedPdfDoc = await PDFDocument.create();
+
+  // Determine Page Dimensions based on options
+  const getPageDims = () => {
+      switch (options.pageSize) {
+          case 'Letter': return PageSizes.Letter; // [612.0, 792.0]
+          case 'Legal': return [612.0, 1008.0];
+          case 'A4': default: return PageSizes.A4; // [595.28, 841.89]
+      }
+  };
+  
+  const getMarginSize = () => {
+      switch (options.margin) {
+          case 'None': return 0;
+          case 'Normal': return 40; // ~1.4cm
+          case 'Big': return 72; // ~2.5cm (1 inch)
+          case 'Small': default: return 20; // ~0.7cm
+      }
+  };
+
+  const margin = getMarginSize();
+  const targetDims = getPageDims(); // undefined if 'Original'
 
   for (const file of files) {
     onProgress?.(file.name);
@@ -169,8 +219,9 @@ export const mergeFilesToPdf = async (
     const fileName = file.name.toLowerCase();
 
     if (fileType.startsWith('image/')) {
-      // Force A4 Page for Images (Scanned documents High Accuracy)
-      const page = mergedPdfDoc.addPage(PageSizes.A4);
+      // Logic for Images: Force standard page size (scanned doc look)
+      const pageDims = options.pageSize === 'Original' ? PageSizes.A4 : targetDims; // Default images to A4 if Original selected, or use target
+      const page = mergedPdfDoc.addPage(pageDims);
       const { width: pageWidth, height: pageHeight } = page.getSize();
       
       const imageBytes = await file.arrayBuffer();
@@ -187,19 +238,16 @@ export const mergeFilesToPdf = async (
 
         const imageDims = image.scale(1);
         
-        // Calculate scaling to fit within A4 margins (e.g., 20px margin)
-        const margin = 20;
         const availableWidth = pageWidth - (margin * 2);
         const availableHeight = pageHeight - (margin * 2);
 
-        // Scale to fit, but do not scale up if image is smaller than page (optional, usually for scanned docs we want to fill)
-        // For scanned docs, we usually want to fit the page.
+        // Determine best fit scaling (Contain)
         const scale = Math.min(availableWidth / imageDims.width, availableHeight / imageDims.height);
         
         const scaledWidth = imageDims.width * scale;
         const scaledHeight = imageDims.height * scale;
 
-        // Center the image
+        // Center the image on the page
         const x = (pageWidth - scaledWidth) / 2;
         const y = (pageHeight - scaledHeight) / 2;
 
@@ -217,22 +265,50 @@ export const mergeFilesToPdf = async (
     } else if (fileType === 'application/pdf') {
       try {
         const pdfBytes = await file.arrayBuffer();
-        // Load with password if provided
         const password = passwords[file.name] || '';
+        
         const donorPdfDoc = await PDFDocument.load(pdfBytes, { 
             ignoreEncryption: false,
             password: password 
         });
         
         const copiedPageIndices = donorPdfDoc.getPageIndices();
-        const copiedPages = await mergedPdfDoc.copyPages(donorPdfDoc, copiedPageIndices);
-        copiedPages.forEach((page: any) => mergedPdfDoc.addPage(page));
+        
+        if (options.pageSize === 'Original') {
+            // Keep original logic
+            const copiedPages = await mergedPdfDoc.copyPages(donorPdfDoc, copiedPageIndices);
+            copiedPages.forEach((page: any) => mergedPdfDoc.addPage(page));
+        } else {
+            // Embed pages to resize them onto target page size
+            const embeddedPages = await mergedPdfDoc.embedPdf(donorPdfDoc, copiedPageIndices);
+            
+            for (const embeddedPage of embeddedPages) {
+                const newPage = mergedPdfDoc.addPage(targetDims);
+                const { width: destWidth, height: destHeight } = newPage.getSize();
+                
+                // Calculate scaling to fit within margins
+                const availableWidth = destWidth - (margin * 2);
+                const availableHeight = destHeight - (margin * 2);
+                
+                const scale = Math.min(availableWidth / embeddedPage.width, availableHeight / embeddedPage.height);
+                
+                const scaledW = embeddedPage.width * scale;
+                const scaledH = embeddedPage.height * scale;
+                
+                newPage.drawPage(embeddedPage, {
+                    x: (destWidth - scaledW) / 2,
+                    y: (destHeight - scaledH) / 2,
+                    width: scaledW,
+                    height: scaledH,
+                });
+            }
+        }
       } catch (e: any) {
          console.error(`Could not process PDF file: ${file.name}`, e);
          const page = mergedPdfDoc.addPage();
          let errorMessage = `Could not load PDF: ${file.name}`;
          if (e.message && e.message.includes('encrypted')) {
-             errorMessage += ' (Password required)';
+             errorMessage += ' (محمي بكلمة مرور)';
          }
          page.drawText(errorMessage, { x: 50, y: page.getHeight() / 2, size: 12, color: rgb(0.8, 0.2, 0.2) });
       }
@@ -240,6 +316,9 @@ export const mergeFilesToPdf = async (
         fileType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || 
         fileName.endsWith('.docx')
     ) {
+      // Note: embedHtmlAsImage uses default A4 hardcoded. 
+      // For now, we will rely on that as refactoring html2canvas scaling is complex.
+      // It will produce A4 pages.
       try {
           const arrayBuffer = await file.arrayBuffer();
           const result = await (window as any).mammoth.convertToHtml({ arrayBuffer });
@@ -262,10 +341,8 @@ export const mergeFilesToPdf = async (
             const arrayBuffer = await file.arrayBuffer();
             const data = new Uint8Array(arrayBuffer);
             const workbook = (window as any).XLSX.read(data, { type: 'array' });
-            
             const sheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[sheetName];
-            
             const html = (window as any).XLSX.utils.sheet_to_html(worksheet, { id: 'excel-table', editable: false });
             
             const wrappedHtml = `

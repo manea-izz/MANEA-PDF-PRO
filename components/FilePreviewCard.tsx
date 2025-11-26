@@ -1,7 +1,8 @@
 
-import React from 'react';
+
+import React, { useState } from 'react';
 import { Spinner } from './Spinner';
-import { FileIcon, ImageIcon, PdfIcon, RemoveIcon, PinIcon, PinFilledIcon, WordIcon, ExcelIcon, DragHandleIcon, LockIcon, UnlockIcon } from './icons';
+import { FileIcon, ImageIcon, PdfIcon, RemoveIcon, PinIcon, PinFilledIcon, WordIcon, ExcelIcon, DragHandleIcon, LockIcon, UnlockIcon, CheckIcon } from './icons';
 
 interface FilePreviewCardProps {
   file: File;
@@ -16,6 +17,7 @@ interface FilePreviewCardProps {
   isProtected?: boolean;
   onPasswordChange?: (fileName: string, password: string) => void;
   passwordValue?: string;
+  isUnlocking?: boolean;
 }
 
 const formatBytes = (bytes: number, decimals = 2): string => {
@@ -47,7 +49,8 @@ export const FilePreviewCard: React.FC<FilePreviewCardProps> = ({
     isProcessing = false,
     isProtected = false,
     onPasswordChange,
-    passwordValue = ''
+    passwordValue = '',
+    isUnlocking = false
 }) => {
   const getFileIcon = () => {
     const fileType = file.type;
@@ -65,14 +68,14 @@ export const FilePreviewCard: React.FC<FilePreviewCardProps> = ({
     if (fileType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || fileName.endsWith('.xlsx')) {
       return <ExcelIcon className="w-8 h-8 text-emerald-600" />;
     }
-    return <FileIcon className="w-8 h-8 text-gray-400" />;
+    return <FileIcon className="w-8 h-8 text-gray-500" />;
   };
 
   const cardClasses = `
-    relative flex items-center p-4 rounded-xl border transition-all duration-300 group
+    relative flex items-center p-3 sm:p-4 rounded-xl border transition-all duration-300 group select-none
     ${isFirstPage 
-        ? 'bg-indigo-50/50 border-indigo-200 shadow-sm ring-1 ring-indigo-200' 
-        : 'bg-white border-gray-100 hover:border-gray-200 hover:shadow-lg hover:shadow-indigo-500/5'
+        ? 'bg-indigo-50/40 border-indigo-200 shadow-sm ring-1 ring-indigo-100' 
+        : 'bg-white border-slate-100 hover:border-slate-200 hover:shadow-md hover:shadow-indigo-500/5'
     } 
     ${isDragging ? 'opacity-40 scale-[0.98]' : 'scale-100'}
   `;
@@ -87,7 +90,7 @@ export const FilePreviewCard: React.FC<FilePreviewCardProps> = ({
       onDragOver={(e) => e.preventDefault()}
     >
       {!isFirstPage && !isProcessing && (
-        <div className="absolute right-3 top-1/2 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500">
+        <div className="absolute right-2 top-1/2 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500">
             <DragHandleIcon />
         </div>
       )}
@@ -98,29 +101,41 @@ export const FilePreviewCard: React.FC<FilePreviewCardProps> = ({
       
       <div className="flex-grow min-w-0 mx-4">
         <div className="flex items-center gap-2">
-            <p className={`text-sm font-bold truncate mb-1 ${isFirstPage ? 'text-indigo-900' : 'text-gray-800'}`}>
+            <p className={`text-sm font-bold truncate mb-1 ${isFirstPage ? 'text-indigo-900' : 'text-slate-800'}`}>
                 {file.name}
             </p>
             {isProtected && (
-                 <span title="ملف محمي" className="animate-pulse">{passwordValue ? <UnlockIcon /> : <LockIcon />}</span>
+                 <span title="ملف محمي" className="animate-pulse">{isUnlocking ? <Spinner className="w-4 h-4 text-indigo-500"/> : (passwordValue ? <UnlockIcon /> : <LockIcon />)}</span>
             )}
         </div>
         
         <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-             <p className="text-xs text-gray-400 flex items-center gap-2">
-                <span className="font-medium text-gray-500 bg-gray-50 px-2 py-0.5 rounded-full border border-gray-100">{formatBytes(file.size)}</span>
+             <p className="text-xs text-slate-400 flex items-center gap-2">
+                <span className="font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">{formatBytes(file.size)}</span>
                 <span>{formatDate(file.lastModified)}</span>
             </p>
 
             {isProtected && onPasswordChange && (
-                <input 
-                    type="password" 
-                    placeholder="كلمة مرور الملف"
-                    value={passwordValue}
-                    onChange={(e) => onPasswordChange(file.name, e.target.value)}
-                    className="text-xs border border-red-200 rounded-md px-2 py-1 outline-none focus:border-red-400 focus:ring-1 focus:ring-red-200 bg-red-50 text-gray-700 w-32 placeholder-red-300"
-                    onClick={(e) => e.stopPropagation()}
-                />
+                <div className="relative">
+                    <input 
+                        type="password" 
+                        placeholder="كلمة المرور..."
+                        value={passwordValue}
+                        onChange={(e) => onPasswordChange(file.name, e.target.value)}
+                        className="text-xs border border-red-200 rounded-lg pl-8 pr-2 py-1.5 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-red-50 focus:bg-white text-slate-700 w-36 placeholder-red-300 font-medium transition-all"
+                        onClick={(e) => e.stopPropagation()}
+                        disabled={isUnlocking}
+                    />
+                    <div className="absolute left-2 top-1/2 transform -translate-y-1/2">
+                        {isUnlocking ? (
+                            <Spinner className="w-3 h-3 text-indigo-500" />
+                        ) : (
+                            <div className={`transition-colors ${passwordValue ? 'text-indigo-500' : 'text-slate-300'}`}>
+                                <LockIcon />
+                            </div>
+                        )}
+                    </div>
+                </div>
             )}
         </div>
       </div>
@@ -135,7 +150,7 @@ export const FilePreviewCard: React.FC<FilePreviewCardProps> = ({
               className={`p-2 rounded-lg transition-all ${
                 isFirstPage 
                     ? 'text-indigo-600 bg-indigo-100' 
-                    : 'text-gray-300 hover:text-indigo-600 hover:bg-gray-50'
+                    : 'text-slate-300 hover:text-indigo-600 hover:bg-slate-50'
                 }`}
               title={isFirstPage ? `إلغاء تثبيت كصفحة أولى` : `تعيين كصفحة أولى`}
             >
@@ -143,7 +158,7 @@ export const FilePreviewCard: React.FC<FilePreviewCardProps> = ({
             </button>
             <button
               onClick={() => onRemove(file.name)}
-              className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+              className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
               title={`إزالة الملف`}
             >
               <RemoveIcon />
